@@ -1,17 +1,22 @@
 package org.example;
 
 import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
-import org.apache.poi.openxml4j.opc.OPCPackage;
+import org.apache.poi.xwpf.usermodel.IRunBody;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.apache.poi.xwpf.usermodel.XWPFRun;
 import org.apache.poi.xwpf.usermodel.XWPFTable;
 import org.apache.poi.xwpf.usermodel.XWPFTableCell;
 import org.apache.poi.xwpf.usermodel.XWPFTableRow;
+import org.apache.xmlbeans.XmlCursor;
+import org.apache.xmlbeans.XmlException;
+import org.apache.xmlbeans.XmlObject;
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTR;
 
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -19,20 +24,44 @@ import java.util.Map;
 public class Main {
     
 
-    public static void replaceParametersInDocx(String inputFilePath, String outputFilePath, Map<String, String> parameters) {
+    public static void replaceParametersInDocx(String inputFilePath, String outputFilePath, Map<String, String> parameters) throws XmlException {
         try (FileInputStream fis = new FileInputStream(inputFilePath);
              XWPFDocument document = new XWPFDocument(fis)) {
 
-            for (XWPFParagraph paragraph : document.getParagraphs()) {
-                replaceInParagraph(paragraph, parameters);
-            }
 
             // Iterate over paragraphs in the document
             for (XWPFTable table : document.getTables()) {
                 for (XWPFTableRow row : table.getRows()) {
                     for (XWPFTableCell tableCell : row.getTableCells()) {
                         for (XWPFParagraph paragraph : tableCell.getParagraphs()) {
-                            replaceInParagraph(paragraph, parameters);
+                            XmlCursor cursor = paragraph.getCTP().newCursor();
+                            cursor.selectPath("declare namespace w='http://schemas.openxmlformats.org/wordprocessingml/2006/main' .//w:drawing/*/w:txbxContent/w:p/w:r");
+                            List<XmlObject> ctrsintxtbx = new ArrayList<XmlObject>();
+
+                            while(cursor.hasNextSelection()) {
+                                cursor.toNextSelection();
+                                XmlObject obj = cursor.getObject();
+                                ctrsintxtbx.add(obj);
+                            }
+                            for (XmlObject obj : ctrsintxtbx) {
+//                                System.out.println("-----------");
+                                CTR ctr = CTR.Factory.parse(obj.xmlText());
+                                //CTR ctr = CTR.Factory.parse(obj.newInputStream());
+                                XWPFRun bufferrun = new XWPFRun(ctr, (IRunBody) paragraph);
+                                String text = bufferrun.getText(0);
+//                                System.out.println(text);
+                                if (text != null) {
+                                    for (Map.Entry<String, String> entry : parameters.entrySet()) {
+                                        if (text.contains(entry.getKey())) {
+                                            text = text.replace(entry.getKey(), entry.getValue());
+                                            bufferrun.setText(text, 0);
+                                        }
+                                    }
+//                                    text = text.replace("{name}", "replaced");
+//                                    bufferrun.setText(text, 0);
+                                }
+                                obj.set(bufferrun.getCTR());
+                            }
                         }
                     }
                 }
@@ -64,9 +93,9 @@ public class Main {
         }
     }
 
-    public static void main(String[] args) throws IOException, InvalidFormatException {
+    public static void main(String[] args) throws IOException, InvalidFormatException, XmlException {
 //         Define the input and output file paths
-        String inputFilePath = "src/main/resources/input2.docx";
+        String inputFilePath = "src/main/resources/input3.docx";
         String outputFilePath = "src/main/resources/output.docx";
 
         // Define the parameters to replace in the document
